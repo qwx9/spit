@@ -1,4 +1,7 @@
 ; Demonstration of spit capabilities
+@style[title.font] = /lib/font/ttf/DejaVuSans.ttf
+@style[fixed.font] = /lib/font/ttf/DejaVuSans-Mono.ttf
+
 # A sample presentation
 spit is a simple presentation tool for plan9.
 spit presentations are simple markdown-like files.

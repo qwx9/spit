@@ -4,8 +4,11 @@
 Mousectl	*mc;
 Keyboardctl *kc;
 Image		*cols[Ncols];
+char		*ftitlename;
 Sfont		*ftitle;
+char		*ftextname;
 Sfont		*ftext;
+char		*ffixedname;
 Sfont		*ffixed;
 Sdopts		 opts = {.prefilter = 0, .gamma = 1.0 };
 int			fullscreen;
@@ -39,7 +42,7 @@ void
 error(char *f, int l, char *m)
 {
 	fprint(2, "error: %s at %s:%d\n", m, f, l);
-	exits("error");
+	threadexitsall("error");
 }
 
 Image*
@@ -189,6 +192,117 @@ renderimage(Image *b, Point p, char *f)
 	return p;
 }
 
+char*
+skipws(char *s)
+{
+	while(*s == ' ' || *s == '\t')
+		++s;
+	return s;
+}
+
+ulong
+estrtoul(char *f, int line, char *s)
+{
+	char *e;
+	ulong c;
+
+	c = strtoul(s, &e, 16);
+	if(e == s || e == nil)
+		error(f, line, "invalid number");
+	return (c << 8) | 0xff;
+}	
+
+void
+parsestyle(char *f, int line, char *s)
+{
+	char k[32] = {0}, *p;
+
+	s += 6; /* skip '@style' */
+	if(s[0] != '[')
+		error(f, line, "expected '[' character in style declaration");
+	p = strchr(s, ']');
+	if(p == nil)
+		error(f, line, "expected ']' character in style declaration");
+	if(p == s+1)
+		error(f, line, "empty style declaration");
+	if(p-s >= 32)
+		error(f, line, "invalid key in style declaration");
+	strncpy(k, s+1, p-s-1);
+	s = skipws(p+1);
+	if(*s != '=')
+		error(f, line, "expected '=' character in style declaration");
+	s = skipws(s+1);
+	if(*s == 0)
+		error(f, line, "empty style value");
+	if(strcmp(k, "margin") == 0){
+		margin = atoi(s);
+		if(margin == 0) error(f, line, "invalid 'margin' value");
+	}else if(strcmp(k, "padding") == 0){
+		padding = atoi(s);
+		if(padding == 0) error(f, line, "invalid 'padding' value");
+	}else if(strcmp(k, "lineheight") == 0){
+		lineheight = atof(s);
+		if(lineheight < 1.0) error(f, line, "invalid 'lineheight' value");
+	}else if(strcmp(k, "color.bg") == 0)
+		coldefs[Cbg] = estrtoul(f, line, s);
+	else if(strcmp(k, "color.fg") == 0)
+		coldefs[Cfg] = estrtoul(f, line, s);
+	else if(strcmp(k, "color.quotebg") == 0)
+		coldefs[Cqbg] = estrtoul(f, line, s);
+	else if(strcmp(k, "color.quoteborder") == 0)
+		coldefs[Cqbord] = estrtoul(f, line, s);
+	else if(strcmp(k, "color.codebg") == 0)
+		coldefs[Ccbg] = estrtoul(f, line, s);
+	else if(strcmp(k, "color.codeborder") == 0)
+		coldefs[Ccbord] = estrtoul(f, line, s);
+	else if(strcmp(k, "title.font") == 0)
+		ftitlename = strdup(s);
+	else if(strcmp(k, "title.size") == 0)
+		ftitlesz = atof(s);
+	else if(strcmp(k, "text.font") == 0)
+		ftextname = strdup(s);
+	else if(strcmp(k, "text.size") == 0)
+		ftextsz = atof(s);
+	else if(strcmp(k, "fixed.font") == 0)
+		ffixedname = strdup(s);
+	else if(strcmp(k, "fixed.size") == 0)
+		ffixedsz = atof(s);
+	else
+		error(f, line, "unknown style key");		
+}
+
+void
+initimages(void)
+{
+	Point p[4];
+
+	bol = allocimage(display, Rect(0, 0, ftextsz, ftextsz), screen->chan, 0, coldefs[Cbg]);
+	p[0] = Pt(0.25*ftextsz, 0.25*ftextsz);
+	p[1] = Pt(0.25*ftextsz, 0.75*Dy(bol->r));
+	p[2] = Pt(0.75*ftextsz, 0.50*Dy(bol->r));
+	p[3] = p[0];
+	fillpoly(bol, p, 4, 0, cols[Cfg], ZP);
+	bullet = allocimage(display, Rect(0, 0, ftextsz, ftextsz), screen->chan, 0, coldefs[Cbg]);
+	fillellipse(bullet, Pt(0.5*ftextsz, 0.5*ftextsz), 0.15*ftextsz, 0.15*ftextsz, cols[Cfg], ZP);
+}
+
+void
+loadstyle(char *f)
+{
+	int i;
+
+	if(ftitlename == nil){
+		fprint(2, "%s: no title font defined", f);
+		threadexitsall("missing font");
+	}
+	for(i = 0; i < Ncols; i++)
+		cols[i] = ealloccol(coldefs[i]);
+	ftitle = loadsfont(ftitlename, ftitlesz);
+	ftext  = loadsfont(ftextname ? ftextname : ftitlename, ftextsz);
+	ffixed = loadsfont(ffixedname ? ffixedname : ftitlename, ffixedsz);
+	initimages();
+}
+
 void
 render(char *f)
 {
@@ -215,11 +329,18 @@ render(char *f)
 Again:
 		switch(s){
 		case Sstart:
-			if(l[0] == ';'){
+			if(l[0] == ';' || l[0] == 0){
+				free(l);
+				continue;
+			}
+			if(strncmp(l, "@style", 6) == 0){
+				parsestyle(f, ln, l);
 				free(l);
 				continue;
 			}
 			if(l[0] != '#') error(f, ln, "expected title line");
+			if(nslides == -1) /* all style parsed but not slide rendered yet */
+				loadstyle(f);
 Title:
 			p = Pt(margin, margin);
 			b = addslide();
@@ -352,36 +473,9 @@ togglefullscreen(void)
 }
 
 void
-initstyle(char *tname, char *fname)
-{
-	int i;
-
-	for(i = 0; i < Ncols; i++)
-		cols[i] = ealloccol(coldefs[i]);
-	ftitle = loadsfont(tname, ftitlesz);
-	ftext  = loadsfont(tname, ftextsz);
-	ffixed = loadsfont(fname ? fname : tname, ffixedsz);
-}
-
-void
-initimages(void)
-{
-	Point p[4];
-
-	bol = allocimage(display, Rect(0, 0, ftextsz, ftextsz), screen->chan, 0, coldefs[Cbg]);
-	p[0] = Pt(0.25*ftextsz, 0.25*ftextsz);
-	p[1] = Pt(0.25*ftextsz, 0.75*Dy(bol->r));
-	p[2] = Pt(0.75*ftextsz, 0.50*Dy(bol->r));
-	p[3] = p[0];
-	fillpoly(bol, p, 4, 0, cols[Cfg], ZP);
-	bullet = allocimage(display, Rect(0, 0, ftextsz, ftextsz), screen->chan, 0, coldefs[Cbg]);
-	fillellipse(bullet, Pt(0.5*ftextsz, 0.5*ftextsz), 0.15*ftextsz, 0.15*ftextsz, cols[Cfg], ZP);
-}
-
-void
 usage(void)
 {
-	fprint(2, "%s [-n] [-f font] [-F fixedfont]<filename>\n", argv0);
+	fprint(2, "%s [-n] <filename>\n", argv0);
 	exits("usage");
 }
 
@@ -389,7 +483,7 @@ void
 threadmain(int argc, char **argv)
 {
 	enum { Emouse, Eresize, Ekeyboard };
-	char *f, *tname, *fname;
+	char *f;
 	Mouse m;
 	Rune k;
 	Alt alts[] = {
@@ -399,25 +493,16 @@ threadmain(int argc, char **argv)
 		{ nil, nil, CHANEND },
 	};
 
-	tname = nil;
-	fname = nil;
+	ftitlename = nil;
+	ftextname = nil;
+	ffixedname = nil;
 	ARGBEGIN{
 	case 'n':
 		nodraw = 1;
 		break;
-	case 'f':
-		tname = EARGF(usage());
-		break;
-	case 'F':
-		fname = EARGF(usage());
-		break;
 	default:
 		usage();
 	}ARGEND;
-	if(tname == nil){
-		fprint(2, "missing -f argument\n");
-		usage();
-	}
 	if((f = *argv) == nil){
 		fprint(2, "missing filename\n");
 		usage();
@@ -436,8 +521,6 @@ threadmain(int argc, char **argv)
 	memimageinit();
 	fullscreen = 0;
 	screenr = screen->r;
-	initstyle(tname, fname);
-	initimages();
 	render(f);
 	if(nodraw){
 		barf();
