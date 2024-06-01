@@ -86,7 +86,7 @@ rendertext(Image *b, Point p, char *s)
 		draw(b, rectaddpt(r, Pt(p.x + Dx(bol->r) + padding, p.y)), cols[Cfg], i, ZP);
 		freeimage(i);
 	}
-	p.y += Dy(r);
+	p.y += Dy(r)*lineheight;
 	return p;
 }
 
