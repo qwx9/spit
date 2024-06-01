@@ -457,6 +457,8 @@ threadmain(int argc, char **argv)
 			switch(k){
 			case Kdel:
 			case 'q':
+				if(fullscreen)
+					togglefullscreen();
 				threadexitsall(nil);
 				break;
 			case 'f':
