@@ -4,6 +4,9 @@ int		margin 			= 32;
 /* box (quote or code) internal padding */
 int		padding 		= 12;
 
+/* line height multiplier */
+float	lineheight		= 1.0;
+
 /* slide title font size */
 float	ftitlesz		= 120.0;
 
