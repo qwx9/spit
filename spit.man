@@ -1,0 +1,157 @@
+.TH SPIT 1
+.SH NAME
+spit \- simple presentation tool
+.SH SYNOPSIS
+.B spit
+[
+.I -n
+]
+.I file
+.SH DESCRIPTION
+.I Spit
+reads the presentation described in
+.I file
+and renders it in a graphical window. The format of the presentation is described below in
+.IR "Presentation format"
+.
+With the presentation displayed, navigation between slides is achieved using the 
+.B left and 
+.B right arrows (or 
+.B backspace and 
+.B space
+respectively), it is also possible to go back to the first slide of the presentation using the 
+.B home
+key and to the last one using the
+.B end
+key. Pressing the
+.B f
+key will toggle fullscreen mode making the window fill the entirety of the screen, or restore the window to its original size.
+.I Spit
+is exited with either
+.B q
+or the
+.B delete
+keys.
+.PP
+If the
+.I -n
+flag is passed, the presentation will not be displayed but instead each slide will be rendered to an image named 
+.I spit.NNN.bit
+(with NNN being the slide number) in the current directory.
+.SS Presentation format
+Presentations are plaintext files written in a markdown-like format. A new slide is started with a line starting with a
+.I pound
+character (#) followed by a space then the title of the slide. Within a slide, 
+.I spit
+recognizes the following directives
+.TP
+.B Lists
+A list starts when
+.I spit
+encounters a line starting with a 
+.I dash
+ followed by a space and until a line does not.
+.TP
+.B Quotes
+A quote starts when
+.I spit
+encounters a line starting with a 
+.I greater than
+sign followed by a space and can span multiple lines.
+.TP
+.B Code
+A code listing can be inserted by putting three backticks on a single line. All following lines will then be rendered as code and this until a line with three backticks is encountered again.
+.TP
+.B Images
+An image, in p9 format, can be inserted by putting an
+.I exclamation mark
+followed by a space and the path to the file.
+.PP
+Lines starting with a semi-colon are comments and ignored by
+.I spit .
+All other lines are rendered as bullet points in the slide.
+.PP
+The presentation style can be configured with a style directive (see
+.IR "Style configuration"
+). These directives must come first in the presentation (comments notwithstanding).
+.SS Style configuration
+.I Spit
+has a predefined style for all presentation elements but this can be changed using style directives. A style directive is defined using the
+.B @style
+keyword with the following syntax:
+.EX
+@style[element] = value
+.EE
+.PP 
+The possible style elements are
+.TP
+.B title.font
+Path of the TTF font for the title of the slides. This element is
+.B mandatory
+for the presentation to render.
+.TP
+.B title.size
+Size, in points, of the title text (default: 120)
+.TP
+.B text.font
+Path of the TTF font for the text. If not specified, this will default to using
+.I title.font
+.TP
+.B text.size
+Size, in points, of the slides content text (default: 96)
+.TP
+.B fixed.font
+Path of the TTF font to used for code blocks. If not specified, this will default to using
+.I title.font
+.TP
+.B fixed.size
+Size, in points, of code blocks text (default: 72)
+.TP
+.B margin
+Size, in pixels, of the margin surrounding slides (default: 32)
+.TP
+.B padding
+Size, in pixels, of quote and code blocks internal padding (default: 12)
+.TP
+.B lineheight
+Multiplier for the height of text lines. By default, lines have no spacing with each line being the height of the font. This parameter will make lines
+.I lineheight
+times higher.
+.TP
+.B color.bg
+Background color of the slides (default: FFFFFF)
+.TP
+.B color.fg
+Foreground color of the text (default: 000000)
+.TP
+.B color.quotebg
+Background color of quote blocks (default: FAFAFA)
+.TP
+.B color.quoteborder
+Color of the border around quote blocks (default: CCCCCC)
+.TP
+.B color.codebg
+Background color of code blocks (default: FFFFEA)
+.TP
+.B color.codeborder
+Color of the border around code blocks (default: 99994C)
+.SH EXAMPLE
+A simple presentation with two slides:
+.PP
+.EX
+; a comment that will not be rendered
+@style[title.font] = /lib/font/ttf/myfont.ttf
+# Introduction
+Spit is a presentation tool
+Spit has very basic functionalities
+> Mandatory Rob quote
+# Second slide
+Here is a list of items:
+- Item 1
+- Item 2
+- Item 3
+And an image to end it all:
+! nein.bit
+.EE
+
+

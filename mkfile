@@ -5,6 +5,7 @@ TARG=spit
 LIB=libpt/libpt.a$O
 HFILES=a.h style.h
 OFILES=spit.$O utils.$O
+MAN=/sys/man/1
 
 </sys/src/cmd/mkone
 
@@ -17,3 +18,6 @@ $LIB:V:
 clean nuke:V:
 	@{ cd libpt; mk $target }
 	rm -f *.[$OS] [$OS].out $TARG
+
+install:V: man
+

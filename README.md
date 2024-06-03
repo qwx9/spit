@@ -18,12 +18,10 @@ Installation:
 
 Usage:
 ------
-See `sample.spit` for a sample presentation.
+See spit(1) and `sample.spit` for a sample presentation
 ```sh
-% spit -f textfont.ttf -F fixedfont.ttf sample.spit
+% spit sample.spit
 ```
-
-Basic configuration of colors and text sizes is available in `style.h`.
 
 Author:
 -------
