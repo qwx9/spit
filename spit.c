@@ -8,6 +8,8 @@ char		*ftitlename;
 Sfont		*ftitle;
 char		*ftextname;
 Sfont		*ftext;
+Sfont		*frtext;
+Sfont		*fnum;
 char		*ffixedname;
 Sfont		*ffixed;
 Sdopts		 opts = {.prefilter = 0, .gamma = 1.0 };
@@ -24,7 +26,7 @@ void
 ladd(Lines *l, char *s)
 {
 	if(l->nlines == Maxlines)
-		sysfatal("too many lines");
+		sysfatal("slide %d: too many lines", nslides);
 	l->lines[l->nlines++] = strdup(s);
 }
 
@@ -45,16 +47,50 @@ error(char *f, int l, char *m)
 	threadexitsall("error");
 }
 
+void
+barf(Image *slide, int n)
+{
+	int fd;
+	char path[64];
+
+	snprint(path, sizeof path, "spit.%03d.bit", n);
+	if((fd = create(path, OWRITE, 0644)) < 0)
+		sysfatal("open: %r");
+	writeimage(fd, slide, 0);
+	close(fd);
+}
+
 Image*
 addslide(void)
 {
 	++nslides;
+	if(nodraw && nslides > 0){
+		barf(slides[0], nslides);
+		draw(slides[0], slides[0]->r, cols[Cbg], nil, ZP);
+		return slides[0];
+	}
 	if(nslides >= Maxslides)
 		sysfatal("too many slides");
-	slides[nslides] = allocimage(display, display->image->r, screen->chan, 0, coldefs[Cbg]);
+	slides[nslides] = allocimage(display, screenr, screen->chan, 0, coldefs[Cbg]);
 	if(slides[nslides] == nil)
 		sysfatal("allocimage: %r");
 	return slides[nslides];
+}
+
+void
+renderpagenum(Image *b)
+{
+	char num[8];
+	Point p;
+	Rectangle r;
+	Image *t;
+
+	snprint(num, sizeof num, "%3d", nslides+1);
+	r = pt_textrect(fnum, num);
+	t = pt_textdraw(fnum, num, r, &opts);
+	p = Pt(b->r.max.x - margin - Dx(r), b->r.max.y - margin - Dy(r));
+	draw(b, rectaddpt(r, p), cols[Cfg], t, ZP);
+	freeimage(t);
 }
 
 Point
@@ -63,27 +99,34 @@ rendertitle(Image *b, Point p, char *s)
 	Rectangle r;
 	Image *i;
 
+	while(*s == ' ' || *s == '\t')
+		s++;
+	if(*s == 0)
+		s = "";
 	r = pt_textrect(ftitle, s);
 	i = pt_textdraw(ftitle, s, r, &opts);
 	draw(b, rectaddpt(r, p), cols[Cfg], i, ZP);
 	freeimage(i);
 	p.y += Dy(r);
-	line(b, Pt(p.x, p.y), Pt(b->r.max.x - margin, p.y), 0, 0, 2, cols[Cfg], ZP);
-	p.y += Dy(r);
+	line(b, Pt(p.x, p.y), Pt(b->r.max.x - margin, p.y), 0, 0, ftitlelinesz, cols[Cfg], ZP);
+	//p.y += Dy(r);
 	return p;
 }
 
 Point
-rendertext(Image *b, Point p, char *s)
+rendertext(Image *b, Point p, char *s, int rjust)
 {
 	Rectangle r;
 	Image *i;
 
-	r = pt_textrect(ftext, s);
+	r = pt_textrect(rjust ? frtext : ftext, s);
 	if(strlen(s) > 0){
-		i = pt_textdraw(ftext, s, r, &opts);
-		draw(b, Rect(p.x, p.y, p.x+Dx(bol->r), p.y+Dy(bol->r)), bol, 0, ZP);
-		draw(b, rectaddpt(r, Pt(p.x + Dx(bol->r) + padding, p.y)), cols[Cfg], i, ZP);
+		i = pt_textdraw(rjust ? frtext : ftext, s, r, &opts);
+		if(rjust)
+			draw(b, rectaddpt(r, Pt(p.x + screenr.max.x - Dx(r) - margin, p.y)), cols[Cfg], i, ZP);
+		else
+			//draw(b, Rect(p.x, p.y, p.x+Dx(bol->r), p.y+Dy(bol->r)), bol, 0, ZP);
+			draw(b, rectaddpt(r, Pt(p.x + Dx(bol->r) + padding, p.y)), cols[Cfg], i, ZP);
 		freeimage(i);
 	}
 	p.y += Dy(r)*lineheight;
@@ -144,7 +187,6 @@ renderquote(Image *b, Point p, Lines *lines)
 	return p;
 }
 
-
 Point
 rendercode(Image *b, Point p, Lines *lines)
 {
@@ -161,32 +203,83 @@ rendercode(Image *b, Point p, Lines *lines)
 			maxw = Dx(r[i]);
 	}
 	p.x += Dx(bol->r) + margin;
-	br = Rect(p.x, p.y, p.x + 1.5*maxw + 2*padding, p.y + maxh + 2*padding);
+	br = Rect(p.x, p.y, p.x + maxw + 4*padding, p.y + maxh + 2*padding);
 	draw(b, br, cols[Ccbg], nil, ZP);
 	border(b, br, 2, cols[Ccbord], ZP);
-	p.y += padding;
+	p.x += 2*padding;
+	p.y += 2*padding;
 	for(i = 0; i < lines->nlines; i++){
 		t = pt_textdraw(ffixed, lines->lines[i], r[i], &opts);
 		draw(b, rectaddpt(r[i], Pt(p.x+padding, p.y)), cols[Cfg], t, ZP);
 		freeimage(t);
 		p.y += Dy(r[i]);
 	}
-	p.x -= Dx(bol->r) + margin;
+	p.x -= Dx(bol->r) + margin - 2*padding;
 	return p;
 }
 
 Point
-renderimage(Image *b, Point p, char *f)
+renderimage(Image *b, Point p, char *f, int tile)
 {
 	Image *i;
-	int fd;
+	char dim[64], buf[1024];
+	double fx, fy;
+	int x, n, maxx, maxy, w, h, fd, pfd[2];
 
 	fd = open(f, OREAD);
 	if(fd <= 0)
 		sysfatal("open: %r");
 	i = readimage(display, fd, 0);
-	draw(b, rectaddpt(i->r, p), i, nil, ZP);
-	p.y += Dy(i->r) + margin;
+	maxy = screenr.max.y - margin;
+	maxx = screenr.max.x - margin;
+	h = maxy - p.y;
+	w = maxx - p.x;
+	if(tile)
+		w = (maxx - (tile - 1) * margin) / tile;
+	if((w < Dx(i->r) || h < Dy(i->r))){
+		if(pipe(pfd) < 0)
+			sysfatal("pipe: %r");
+		switch(fork()){
+		case -1: sysfatal("fork: %r");
+		case 0:
+			dup(pfd[0], 0);
+			dup(pfd[0], 1);
+			close(pfd[0]);
+			close(pfd[1]);
+			fx = (double)w / Dx(i->r);
+			fy = (double)h / Dy(i->r);
+			if(fx < fy){
+				snprint(dim, sizeof dim, "%f%%", fx*100);
+				execl("/bin/resample", "resample", "-f", "catmullrom", "-x", dim, nil);
+			}else{
+				snprint(dim, sizeof dim, "%f%%", fy*100);
+				execl("/bin/resample", "resample", "-f", "catmullrom", "-y", dim, nil);
+			}
+			sysfatal("execl: %r");
+		default:
+			close(pfd[0]);
+		}
+		seek(fd, 0, 0);
+		while((n = read(fd, buf, sizeof buf)) > 0)
+			if(write(pfd[1], buf, n) != n)
+				sysfatal("write: %r");
+		write(pfd[1], buf, 0);
+		freeimage(i);
+		if((i = readimage(display, pfd[1], 0)) == nil)
+			sysfatal("readimage: %r");
+		close(pfd[1]);
+	}
+	if(tile)
+		x = p.x;
+	else
+		x = (maxx - p.x) / 2 - Dx(i->r) / 2;
+	draw(b, rectaddpt(i->r, Pt(x, p.y)), i, nil, ZP);
+	if(tile)
+		p.x += Dx(i->r) + margin;
+	if(!tile || maxx - p.x <= margin){
+		p.x = margin;
+		p.y += Dy(i->r) + margin;
+	}
 	freeimage(i);
 	close(fd);
 	return p;
@@ -236,10 +329,10 @@ parsestyle(char *f, int line, char *s)
 		error(f, line, "empty style value");
 	if(strcmp(k, "margin") == 0){
 		margin = atoi(s);
-		if(margin == 0) error(f, line, "invalid 'margin' value");
+		if(margin < 0) error(f, line, "invalid 'margin' value");
 	}else if(strcmp(k, "padding") == 0){
 		padding = atoi(s);
-		if(padding == 0) error(f, line, "invalid 'padding' value");
+		if(padding < 0) error(f, line, "invalid 'padding' value");
 	}else if(strcmp(k, "lineheight") == 0){
 		lineheight = atof(s);
 		if(lineheight < 1.0) error(f, line, "invalid 'lineheight' value");
@@ -263,12 +356,28 @@ parsestyle(char *f, int line, char *s)
 		ftextname = strdup(s);
 	else if(strcmp(k, "text.size") == 0)
 		ftextsz = atof(s);
+	else if(strcmp(k, "rtext.size") == 0)
+		frtextsz = atof(s);
+	else if(strcmp(k, "num.size") == 0)
+		fnumsz = atof(s);
 	else if(strcmp(k, "fixed.font") == 0)
 		ffixedname = strdup(s);
 	else if(strcmp(k, "fixed.size") == 0)
 		ffixedsz = atof(s);
+	else if(strcmp(k, "title.linesize") == 0)
+		ftitlelinesz = atoi(s);
+	else if(strcmp(k, "screen.width") == 0)
+		screenr.max.x = atoi(s);
+	else if(strcmp(k, "screen.height") == 0)
+		screenr.max.y = atoi(s);
 	else
 		error(f, line, "unknown style key");		
+}
+
+void
+setpapersize(void)
+{
+	screenr = Rect(0, 0, Dx(screen->r), Dy(screen->r));
 }
 
 void
@@ -299,6 +408,8 @@ loadstyle(char *f)
 		cols[i] = ealloccol(coldefs[i]);
 	ftitle = loadsfont(ftitlename, ftitlesz);
 	ftext  = loadsfont(ftextname ? ftextname : ftitlename, ftextsz);
+	frtext  = loadsfont(ftextname ? ftextname : ftitlename, frtextsz);
+	fnum  = loadsfont(ftextname ? ftextname : ftitlename, fnumsz);
 	ffixed = loadsfont(ffixedname ? ffixedname : ftitlename, ffixedsz);
 	initimages();
 }
@@ -308,9 +419,10 @@ render(char *f)
 {
 	enum { Sstart, Scomment, Scontent, Slist, Squote, Scode };
 	Biobuf *bp;
-	char *l;
-	int s, ln;
+	char *l, *k;
+	int n, s, ln;
 	Image *b;
+	Rune r;
 	Point p;
 	Lines lines = {0};
 
@@ -339,12 +451,14 @@ Again:
 				continue;
 			}
 			if(l[0] != '#') error(f, ln, "expected title line");
+Title:
 			if(nslides == -1) /* all style parsed but not slide rendered yet */
 				loadstyle(f);
-Title:
+			else
+				renderpagenum(b);
 			p = Pt(margin, margin);
 			b = addslide();
-			p = rendertitle(b, p, l+2);
+			p = rendertitle(b, p, l+1);
 			s = Scontent;
 			break;
 		case Scomment:
@@ -363,12 +477,20 @@ Title:
 				s = Scode;
 				break;
 			}else if(l[0] == '!')
-				p = renderimage(b, p, l+2);
+				p = renderimage(b, p, l+2, 0);
 			else if(l[0] == ';'){
 				s = Scomment;
 				break;
-			}else
-				p = rendertext(b, p, l);
+			}else{
+				n = chartorune(&r, l);
+				if(r == L'→')
+					p = rendertext(b, p, l+n+1, 1);
+				else if(r == L'¡'){
+					n = strtol(l+n+1, &k, 10);
+					p = renderimage(b, p, k+1, n);
+				}else
+					p = rendertext(b, p, l, 0);
+			}
 			break;
 		case Slist:
 			if(l[0] != '-'){
@@ -402,22 +524,7 @@ Title:
 	}
 	if(nslides == -1)
 		error(f, ln, "no slides parsed");
-}
-
-void
-barf(void)
-{
-	int fd;
-	char path[64];
-	Image **i;
-
-	for(i=slides; i<slides+nslides+1; i++){
-		snprint(path, sizeof path, "spit.%03zd.bit", i - slides);
-		if((fd = create(path, OWRITE, 0644)) < 0)
-			sysfatal("open: %r");
-		writeimage(fd, *i, 0);
-		close(fd);
-	}
+	renderpagenum(b);
 }
 
 void
@@ -520,10 +627,10 @@ threadmain(int argc, char **argv)
 	alts[Ekeyboard].c = kc->c;
 	memimageinit();
 	fullscreen = 0;
-	screenr = screen->r;
+	setpapersize();
 	render(f);
 	if(nodraw){
-		barf();
+		addslide();
 		threadexitsall(nil);
 	}
 	resize();
