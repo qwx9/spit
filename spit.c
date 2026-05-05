@@ -223,7 +223,7 @@ renderimage(Image *b, Point p, char *f, int tile)
 {
 	Image *i;
 	char dim[64], buf[1024];
-	double fx, fy;
+	Rectangle r;
 	int x, n, maxx, maxy, w, h, fd, pfd[2];
 
 	fd = open(f, OREAD);
@@ -234,9 +234,10 @@ renderimage(Image *b, Point p, char *f, int tile)
 	maxx = screenr.max.x - margin;
 	h = maxy - p.y;
 	w = maxx - p.x;
+	r = Rect(0, 0, Dx(i->r), Dy(i->r));
 	if(tile)
 		w = (maxx - (tile - 1) * margin) / tile;
-	if((w < Dx(i->r) || h < Dy(i->r))){
+	if((w < r.max.x || h < r.max.y)){
 		if(pipe(pfd) < 0)
 			sysfatal("pipe: %r");
 		switch(fork()){
@@ -246,14 +247,14 @@ renderimage(Image *b, Point p, char *f, int tile)
 			dup(pfd[0], 1);
 			close(pfd[0]);
 			close(pfd[1]);
-			fx = (double)w / Dx(i->r);
-			fy = (double)h / Dy(i->r);
-			if(fx < fy){
-				snprint(dim, sizeof dim, "%f%%", fx*100);
-				execl("/bin/resample", "resample", "-f", "catmullrom", "-x", dim, nil);
+			if(r.max.x - w > r.max.y - h){
+				snprint(dim, sizeof dim, "%d", w);
+				execl("/bin/resample", "resample", "-f", "catmullrom",
+					"-x", dim, nil);
 			}else{
-				snprint(dim, sizeof dim, "%f%%", fy*100);
-				execl("/bin/resample", "resample", "-f", "catmullrom", "-y", dim, nil);
+				snprint(dim, sizeof dim, "%d", h);
+				execl("/bin/resample", "resample", "-f", "catmullrom",
+					"-y", dim, nil);
 			}
 			sysfatal("execl: %r");
 		default:
@@ -268,17 +269,18 @@ renderimage(Image *b, Point p, char *f, int tile)
 		if((i = readimage(display, pfd[1], 0)) == nil)
 			sysfatal("readimage: %r");
 		close(pfd[1]);
+		r = Rect(0, 0, Dx(i->r), Dy(i->r));
 	}
 	if(tile)
 		x = p.x;
 	else
-		x = (maxx - p.x) / 2 - Dx(i->r) / 2;
-	draw(b, rectaddpt(i->r, Pt(x, p.y)), i, nil, ZP);
+		x = (maxx - p.x) / 2 - r.max.x / 2;
+	draw(b, rectaddpt(r, Pt(x, p.y)), i, nil, i->r.min);
 	if(tile)
-		p.x += Dx(i->r) + margin;
+		p.x += r.max.x + margin;
 	if(!tile || maxx - p.x <= margin){
 		p.x = margin;
-		p.y += Dy(i->r) + margin;
+		p.y += r.max.y + margin;
 	}
 	freeimage(i);
 	close(fd);
